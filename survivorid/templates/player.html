@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="player-hero mt-3" {% if player.banner_url %}style="background-image:linear-gradient(90deg,rgba(5,8,13,.92),rgba(5,8,13,.35)),url('{{ url_for('static', filename=player.banner_url) }}')"{% endif %}>
+  <div class="row p-4 align-items-center">
+    <div class="col-lg-8 d-flex gap-4 align-items-center flex-wrap">
+      <div class="avatar-ring"><div class="avatar" {% if player.avatar_url %}style="background-image:url('{{ url_for('static', filename=player.avatar_url) }}')"{% endif %}><i class="bi bi-person-fill"></i></div><span>78</span></div>
+      <div>
+        <div class="mb-2">{% if player.is_claimed %}<span class="verified"><i class="bi bi-patch-check-fill"></i> Verificado</span>{% else %}<span class="unverified"><i class="bi bi-shield-exclamation"></i> Não reivindicado</span>{% endif %}</div>
+        <h1 class="player-name">{{ player.nickname }}</h1>
+        <div class="d-flex gap-3 text-soft small mb-3"><span><i class="bi bi-steam"></i> {{ player.shard|upper }}</span><span>🇧🇷 {{ player.country }}</span></div>
+        <div class="d-flex gap-2 flex-wrap"><span class="pill warning">{{ player.role }}</span><span class="pill">Squad: {{ player.squad_name or 'Sem squad' }}</span></div>
+      </div>
+    </div>
+    <div class="col-lg-4 mt-4 mt-lg-0">
+      <div class="score-card ms-lg-auto"><div><small>Survivor Score</small><strong>{{ player.survivor_score }}</strong><span>Elite</span></div><i class="bi bi-award-fill"></i><div class="progress"><div class="progress-bar" style="width:{{ [player.survivor_score/10,100]|min }}%"></div></div><small>{{ player.survivor_score }} / 1000</small></div>
+    </div>
+  </div>
+  <div class="px-4 pb-4 d-flex gap-2 flex-wrap">
+    <a href="#" class="btn btn-warning fw-bold"><i class="bi bi-person-plus"></i> Seguir</a>
+    <a href="#" class="btn btn-outline-light"><i class="bi bi-arrow-left-right"></i> Comparar</a>
+    <a href="#" class="btn btn-outline-light"><i class="bi bi-share"></i> Compartilhar</a>
+    <a href="{{ url_for('claim_player', player_id=player.id) }}" class="btn btn-outline-warning ms-lg-auto">Esse perfil é seu?</a>
+  </div>
+</section>
+<div class="stats-grid mt-3">
+  <div class="stat-card"><small>K/D</small><strong>{{ '%.2f'|format(player.kd) }}</strong><span>Top 8%</span></div>
+  <div class="stat-card"><small>Win Rate</small><strong>{{ player.win_rate }}%</strong><span>Top 12%</span></div>
+  <div class="stat-card"><small>Avg Damage</small><strong>{{ player.avg_damage|int }}</strong><span>Top 9%</span></div>
+  <div class="stat-card"><small>Headshot %</small><strong>{{ player.headshot_rate }}%</strong><span>Top 7%</span></div>
+  <div class="stat-card"><small>Knocks</small><strong>{{ player.knocks }}</strong><span>Top 10%</span></div>
+  <div class="stat-card"><small>Revives</small><strong>{{ player.revives }}</strong><span>Teamplay A</span></div>
+</div>
+<ul class="nav sid-tabs mt-4"><li><a class="active" href="#overview">Overview</a></li><li><a href="#matches">Matches</a></li><li><a href="#badges">Badges</a></li><li><a href="#weapons">Weapons</a></li><li><a href="#maps">Maps</a></li><li><a href="#squad">Squad</a></li><li><a href="#social">Social</a></li></ul>
+<div class="row g-3 mt-1" id="overview">
+  <div class="col-lg-8"><div class="glass-card p-4"><div class="d-flex justify-content-between"><h3 class="section-title">Performance overview</h3><span class="small text-soft">últimos 30 dias</span></div><canvas id="perfChart" height="120"></canvas></div></div>
+  <div class="col-lg-4"><div class="glass-card p-4"><h3 class="section-title">Playstyle</h3><canvas id="radarChart" height="240"></canvas></div></div>
+</div>
+<div class="row g-3 mt-1">
+  <div class="col-md-3"><div class="glass-card p-4 mini-info"><small>Melhor modo</small><strong>{{ player.best_mode }}</strong><span>K/D {{ '%.2f'|format(player.kd+0.7) }} · Win {{ player.win_rate+5 }}%</span></div></div>
+  <div class="col-md-3"><div class="glass-card p-4 mini-info"><small>Melhor mapa</small><strong>{{ player.best_map }}</strong><span>K/D {{ '%.2f'|format(player.kd+0.9) }} · ADR {{ player.avg_damage|int + 86 }}</span></div></div>
+  <div class="col-md-3"><div class="glass-card p-4 mini-info"><small>Squad</small><strong>{{ player.squad_name or 'Livre' }}</strong><span>Chemistry 91/100</span></div></div>
+  <div class="col-md-3"><div class="glass-card p-4 mini-info"><small>Compatibilidade</small><strong>SmokeGod</strong><span class="text-green">91%</span></div></div>
+</div>
+<div class="row g-3 mt-1">
+  <div class="col-lg-8" id="matches"><div class="glass-card p-4"><div class="d-flex justify-content-between"><h3 class="section-title">Partidas recentes</h3><button class="btn btn-outline-light btn-sm">Ver todas</button></div>{% for mp in matches %}<div class="match-row"><div class="place">#{{ mp.placement }}</div><div><b>{{ 'Winner Winner Chicken Dinner!' if mp.placement==1 else mp.match.map_name }}</b><small>{{ mp.match.map_name }} · {{ mp.match.mode }} · {{ mp.match.played_at.strftime('%d/%m %H:%M') }}</small></div><div class="match-stats"><span>Kills <b>{{ mp.kills }}</b></span><span>Dano <b>{{ mp.damage|int }}</b></span><span>HS <b>{{ mp.headshots }}</b></span><span>Knocks <b>{{ mp.knocks }}</b></span><span>Revives <b>{{ mp.revives }}</b></span></div><button class="btn btn-outline-warning btn-sm">Detalhes</button></div>{% endfor %}</div></div>
+  <div class="col-lg-4"><div class="glass-card p-4 mb-3" id="badges"><div class="d-flex justify-content-between"><h3 class="section-title">Medalhas em destaque</h3><a class="small link-warning">Ver todas</a></div><div class="badge-grid">{% for pb in badges %}<div class="badge-card">{% if pb.badge.image_url %}<img src="{{ url_for('static', filename=pb.badge.image_url) }}">{% else %}<i class="bi {{ pb.badge.icon }}"></i>{% endif %}<b>{{ pb.badge.name }}</b><small>{{ pb.badge.tier }}</small></div>{% endfor %}</div></div><div class="glass-card p-4" id="weapons"><h3 class="section-title">Arma principal</h3><div class="weapon-card"><i class="bi bi-crosshair2"></i><div><b>{{ player.main_weapon }}</b><div><span>{{ player.main_weapon_kills }} kills</span><span>{{ player.main_weapon_hs }}% HS</span><span>{{ player.main_weapon_damage|int }} dano</span></div></div></div></div></div>
+</div>
+{% if current_user.is_authenticated and current_user.is_admin %}
+<div class="glass-card p-4 my-3"><h3 class="section-title">Admin: imagens do player</h3><form method="post" enctype="multipart/form-data" action="{{ url_for('admin_player_media', player_id=player.id) }}" class="row g-2"><div class="col-md"><input type="file" name="avatar" class="form-control"></div><div class="col-md"><input type="file" name="banner" class="form-control"></div><div class="col-md-auto"><button class="btn btn-warning">Salvar imagens</button></div></form></div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+const labels = [{% for p in points %}'{{ p.day.strftime('%d/%m') }}',{% endfor %}];
+const kd = [{% for p in points %}{{ p.kd }},{% endfor %}];
+const damage = [{% for p in points %}{{ p.damage }},{% endfor %}];
+const wr = [{% for p in points %}{{ p.win_rate }},{% endfor %}];
+window.makeLineChart('perfChart', labels, kd, damage, wr);
+window.makeRadarChart('radarChart');
+</script>
+{% endblock %}

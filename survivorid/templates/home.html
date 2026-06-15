@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="hero-card mt-3" {% if settings.get('hero_image') %}style="background-image:linear-gradient(90deg,rgba(5,8,13,.95),rgba(5,8,13,.35)),url('{{ url_for('static', filename=settings.get('hero_image')) }}')"{% endif %}>
+  <div class="row align-items-center min-vh-hero">
+    <div class="col-lg-6 p-5">
+      <h1 class="display-4 hero-title">{{ settings.get('hero_title','SEU PERFIL.\nSUA HISTÓRIA.').replace('\n','<br>')|safe }}</h1>
+      <p class="text-soft fs-6 mb-4">{{ settings.get('hero_subtitle','O maior hub de estatísticas e performance de jogadores de PUBG.') }}</p>
+      <form class="search-box" method="post" action="{{ url_for('search_player') }}">
+        <input class="form-control form-control-lg" name="nickname" placeholder="Buscar jogador PUBG..." required>
+        <button class="btn btn-warning btn-lg"><i class="bi bi-search"></i></button>
+        <div class="platforms mt-3">
+          {% for s in shards[:4] %}
+          <label class="chip"><input type="radio" name="shard" value="{{s}}" {% if loop.first %}checked{% endif %}> {{ s|upper }}</label>
+          {% endfor %}
+        </div>
+      </form>
+    </div>
+    <div class="col-lg-6 d-none d-lg-block"></div>
+  </div>
+</section>
+<section class="stat-strip mt-0">
+  <div><i class="bi bi-bar-chart-line-fill"></i><strong>2.4M+</strong><span>Partidas analisadas</span></div>
+  <div><i class="bi bi-people-fill"></i><strong>142K+</strong><span>Jogadores</span></div>
+  <div><i class="bi bi-shield-fill"></i><strong>18K+</strong><span>Squads</span></div>
+  <div><i class="bi bi-globe2"></i><strong>72+</strong><span>Países</span></div>
+</section>
+<section class="py-5">
+  <h2 class="section-title text-center">Por que usar o Survivor ID?</h2>
+  <div class="row g-3 mt-3">
+    {% set features=[('bi-graph-up-arrow','Estatísticas','Acompanhe seu desempenho em tempo real.'),('bi-award-fill','Medalhas','Desbloqueie conquistas únicas.'),('bi-trophy-fill','Rankings','Suba nos rankings e prove seu nível.'),('bi-people-fill','Squads','Monte seu squad e domine o campo.'),('bi-patch-check-fill','Verificação','Proteja seu perfil oficial.')] %}
+    {% for icon,title,body in features %}
+    <div class="col-md"><div class="glass-card feature-card"><i class="bi {{icon}}"></i><h5>{{title}}</h5><p>{{body}}</p></div></div>
+    {% endfor %}
+  </div>
+</section>
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="glass-card p-4 h-100">
+      <div class="d-flex justify-content-between align-items-center mb-3"><h3 class="section-title m-0">Rankings da semana</h3><a href="{{ url_for('rankings') }}" class="link-warning small">Ver todos</a></div>
+      <div class="table-responsive"><table class="table table-dark table-hover sid-table align-middle">
+        <thead><tr><th>#</th><th>Jogador</th><th>Modo</th><th>K/D</th><th>Win</th><th>Score</th></tr></thead>
+        <tbody>{% for p in players %}<tr><td class="rank">{{ loop.index }}</td><td><a href="{{ url_for('player_profile', nickname=p.nickname) }}" class="player-link">{{ p.nickname }}</a> {% if p.is_claimed %}<i class="bi bi-patch-check-fill text-info"></i>{% endif %}</td><td>{{ p.best_mode }}</td><td class="text-green">{{ '%.2f'|format(p.kd) }}</td><td>{{ p.win_rate }}%</td><td class="text-warning fw-bold">{{ p.survivor_score }}</td></tr>{% else %}<tr><td colspan="6">Busque um jogador para popular o ranking.</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="glass-card p-4 h-100"><h3 class="section-title">Feed ao vivo</h3>
+      {% for f in feed %}<div class="feed-item"><i class="bi {{ f.icon }}"></i><div><b>{{ f.title }}</b><small>{{ f.body }}</small></div><span>{{ f.created_at.strftime('%H:%M') }}</span></div>{% else %}<p class="text-soft">Nenhuma atividade ainda.</p>{% endfor %}
+    </div>
+  </div>
+</div>
+<section class="my-4 glass-card p-4 cta-banner">
+  <div><h2>Seu perfil é único. <span>Prove.</span></h2><p>Reivindique seu perfil, desbloqueie medalhas e mostre ao mundo do que você é capaz.</p></div>
+  <a class="btn btn-warning fw-bold" href="{{ url_for('auth_register') }}">Criar conta grátis</a>
+</section>
+<footer class="footer py-4"><b>SURVIVOR<span>ID</span></b><p>{{ settings.get('footer_text') }}</p></footer>
+{% endblock %}

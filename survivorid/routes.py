@@ -4,7 +4,7 @@ from flask import render_template, request, redirect, url_for, flash, abort, cur
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from .models import db, User, SiteSetting, PubgPlayer, Badge, PlayerBadge, Match, MatchParticipant, FeedItem, ClaimChallenge, Asset, PlayerStatPoint, Team
-from .services.pubg_api import get_player_by_name, get_lifetime_stats, demo_recent_matches, PubgApiError
+from .services.pubg_api import get_player_by_name, get_lifetime_stats, get_recent_match_rows, is_demo_account, PubgApiError
 from .utils import save_upload, make_claim_code
 
 SHARDS = ["steam", "kakao", "psn", "xbox", "console"]
@@ -32,19 +32,29 @@ def register_routes(app):
         shard = request.form.get("shard", "steam")
         try:
             player = sync_player(nick, shard)
-            return redirect(url_for("player_profile", nickname=player.nickname))
+            return redirect(url_for("player_profile_by_id", player_id=player.id))
         except PubgApiError as e:
             flash(str(e), "danger")
             return redirect(url_for("home"))
 
-    @app.route("/player/<nickname>")
-    def player_profile(nickname):
-        player = PubgPlayer.query.filter(PubgPlayer.nickname.ilike(nickname)).first_or_404()
+    @app.route("/p/<int:player_id>")
+    def player_profile_by_id(player_id):
+        player = db.session.get(PubgPlayer, player_id) or abort(404)
         badges = PlayerBadge.query.filter_by(player_id=player.id).limit(6).all()
         matches = db.session.query(MatchParticipant).filter_by(player_id=player.id).join(Match).order_by(Match.played_at.desc()).limit(5).all()
         points = PlayerStatPoint.query.filter_by(player_id=player.id).order_by(PlayerStatPoint.day.asc()).limit(30).all()
         feed = FeedItem.query.filter_by(player_id=player.id).order_by(FeedItem.created_at.desc()).limit(5).all()
-        return render_template("player.html", player=player, badges=badges, matches=matches, points=points, feed=feed)
+        return render_template("player.html", player=player, badges=badges, matches=matches, points=points, feed=feed, is_demo=is_demo_account(player.account_id))
+
+    @app.route("/player/<nickname>")
+    def player_profile(nickname):
+        # se houver um registro real e um demo com o mesmo nick, prioriza o real
+        player = PubgPlayer.query.filter(PubgPlayer.nickname.ilike(nickname)).order_by(PubgPlayer.account_id.like("demo-account-%").asc(), PubgPlayer.last_synced_at.desc()).first_or_404()
+        badges = PlayerBadge.query.filter_by(player_id=player.id).limit(6).all()
+        matches = db.session.query(MatchParticipant).filter_by(player_id=player.id).join(Match).order_by(Match.played_at.desc()).limit(5).all()
+        points = PlayerStatPoint.query.filter_by(player_id=player.id).order_by(PlayerStatPoint.day.asc()).limit(30).all()
+        feed = FeedItem.query.filter_by(player_id=player.id).order_by(FeedItem.created_at.desc()).limit(5).all()
+        return render_template("player.html", player=player, badges=badges, matches=matches, points=points, feed=feed, is_demo=is_demo_account(player.account_id))
 
     @app.route("/login", methods=["GET", "POST"])
     def auth_login():
@@ -206,28 +216,109 @@ def set_setting(key, value):
 
 def sync_player(nickname, shard="steam"):
     payload = get_player_by_name(nickname, shard)
+    demo = is_demo_account(payload["account_id"])
     player = PubgPlayer.query.filter_by(account_id=payload["account_id"]).first()
-    stats = get_lifetime_stats(payload["account_id"], shard)
+
+    # Se o banco já tinha um registro demo desse nick, reaproveita o mesmo registro
+    # quando a PUBG_API_KEY real estiver configurada. Isso evita mostrar dados fake antigos.
+    if not player and not demo:
+        player = PubgPlayer.query.filter(
+            PubgPlayer.nickname.ilike(payload["nickname"]),
+            PubgPlayer.shard == shard,
+            PubgPlayer.account_id.like("demo-account-%")
+        ).first()
+        if player:
+            clear_player_generated_data(player.id)
+            player.account_id = payload["account_id"]
+
     if not player:
-        player = PubgPlayer(account_id=payload["account_id"], nickname=payload["nickname"], shard=shard, squad_name="NostraCodes")
+        player = PubgPlayer(
+            account_id=payload["account_id"],
+            nickname=payload["nickname"],
+            shard=shard,
+            squad_name="NostraCodes" if demo else ""
+        )
         db.session.add(player)
         db.session.flush()
+
+    stats = get_lifetime_stats(payload["account_id"], shard)
     player.nickname = payload["nickname"]
     player.shard = shard
-    player.kd = float(stats.get("kd", player.kd or 0))
-    player.win_rate = float(stats.get("win_rate", player.win_rate or 0))
-    player.avg_damage = float(stats.get("avg_damage", player.avg_damage or 0))
-    player.headshot_rate = float(stats.get("headshot_rate", player.headshot_rate or 0))
-    player.knocks = int(stats.get("knocks", player.knocks or 0))
-    player.revives = int(stats.get("revives", player.revives or 0))
-    player.survivor_score = int(stats.get("survivor_score", player.survivor_score or 0))
-    player.main_weapon_kills = max(player.main_weapon_kills or 0, randint(180, 520))
-    player.main_weapon_hs = round(player.headshot_rate * 0.9, 1)
-    player.main_weapon_damage = round(player.avg_damage * 110, 1)
+    player.kd = float(stats.get("kd", 0))
+    player.win_rate = float(stats.get("win_rate", 0))
+    player.avg_damage = float(stats.get("avg_damage", 0))
+    player.headshot_rate = float(stats.get("headshot_rate", 0))
+    player.knocks = int(stats.get("knocks", 0))
+    player.revives = int(stats.get("revives", 0))
+    player.survivor_score = int(stats.get("survivor_score", 0))
+    player.best_mode = stats.get("best_mode") or "Sem dados suficientes"
+
+    # A API lifetime oficial não entrega estatística confiável por arma.
+    # Não inventamos arma/dano; isso só será preenchido depois via telemetry ou upload/admin.
+    if demo:
+        player.main_weapon = "Beryl M762"
+        player.main_weapon_kills = max(player.main_weapon_kills or 0, randint(180, 520))
+        player.main_weapon_hs = round(player.headshot_rate * 0.9, 1)
+        player.main_weapon_damage = round(player.avg_damage * 110, 1)
+    else:
+        player.main_weapon = ""
+        player.main_weapon_kills = 0
+        player.main_weapon_hs = 0
+        player.main_weapon_damage = 0
+
     player.last_synced_at = datetime.utcnow()
     db.session.commit()
-    ensure_demo_content(player)
+
+    if demo:
+        ensure_demo_content(player)
+    else:
+        ensure_real_content(player, payload.get("match_ids", []))
     return player
+
+
+def clear_player_generated_data(player_id):
+    MatchParticipant.query.filter_by(player_id=player_id).delete()
+    PlayerStatPoint.query.filter_by(player_id=player_id).delete()
+    PlayerBadge.query.filter_by(player_id=player_id).delete()
+    FeedItem.query.filter_by(player_id=player_id).delete()
+    db.session.commit()
+
+
+def ensure_real_content(player, match_ids):
+    # pontos reais: salva snapshot do dia atual; sem curva fake de 30 dias
+    today = datetime.utcnow().date()
+    if not PlayerStatPoint.query.filter_by(player_id=player.id, day=today).first():
+        db.session.add(PlayerStatPoint(player_id=player.id, day=today, kd=player.kd, damage=player.avg_damage, win_rate=player.win_rate))
+
+    # medalhas reais básicas baseadas em lifetime; nada de medalha inventada por partida
+    if PlayerBadge.query.filter_by(player_id=player.id).count() == 0:
+        earned = []
+        if player.headshot_rate >= 25 and player.kd > 0:
+            earned.append("Head Hunter")
+        if player.knocks >= 100:
+            earned.append("Squad Wipe")
+        if player.revives >= 50:
+            earned.append("Medic")
+        for name in earned:
+            badge = Badge.query.filter_by(name=name).first()
+            if badge:
+                db.session.add(PlayerBadge(player_id=player.id, badge_id=badge.id, progress=100))
+
+    # partidas recentes reais pela API /matches. Se falhar, deixa vazio em vez de usar demo.
+    existing = {mp.match.pubg_match_id for mp in MatchParticipant.query.filter_by(player_id=player.id).join(Match).all()}
+    for row in get_recent_match_rows(match_ids, player.account_id, player.shard, limit=5):
+        if row["pubg_match_id"] in existing:
+            continue
+        m = Match.query.filter_by(pubg_match_id=row["pubg_match_id"]).first()
+        if not m:
+            m = Match(pubg_match_id=row["pubg_match_id"], map_name=row["map_name"], mode=row["mode"], played_at=row["played_at"], duration_seconds=row["duration_seconds"])
+            db.session.add(m)
+            db.session.flush()
+        db.session.add(MatchParticipant(match_id=m.id, player_id=player.id, placement=row["placement"], kills=row["kills"], damage=row["damage"], headshots=row["headshots"], knocks=row["knocks"], revives=row["revives"]))
+
+    if Team.query.count() == 0:
+        db.session.add_all([Team(name="NostraCodes", tag="NSTR", win_rate=18.2, matches=86, chemistry=91), Team(name="Ultimate4", tag="ULT", win_rate=16.7, matches=74, chemistry=84), Team(name="KingsBR", tag="KBR", win_rate=15.3, matches=68, chemistry=79)])
+    db.session.commit()
 
 
 def ensure_demo_content(player):
@@ -236,7 +327,7 @@ def ensure_demo_content(player):
             db.session.add(PlayerBadge(player_id=player.id, badge_id=badge.id, progress=100))
             db.session.add(FeedItem(player_id=player.id, title=f"{player.nickname} desbloqueou a medalha {badge.name}", body=badge.description, icon=badge.icon))
     if MatchParticipant.query.filter_by(player_id=player.id).count() == 0:
-        for row in demo_recent_matches(player.id, player.nickname):
+        for row in get_recent_match_rows([], player.account_id, player.shard, limit=3):
             m = Match(pubg_match_id=row["pubg_match_id"], map_name=row["map_name"], mode=row["mode"], played_at=row["played_at"], duration_seconds=row["duration_seconds"])
             db.session.add(m); db.session.flush()
             db.session.add(MatchParticipant(match_id=m.id, player_id=player.id, placement=row["placement"], kills=row["kills"], damage=row["damage"], headshots=row["headshots"], knocks=row["knocks"], revives=row["revives"]))

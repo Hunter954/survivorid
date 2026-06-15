@@ -116,3 +116,18 @@ Caminho do admin:
 ## Railway build note
 
 Este projeto inclui `mise.toml` com `python.github_attestations = false` para evitar falha recente do Railpack/mise ao instalar Python 3.12.4 quando o builder retorna `No GitHub artifact attestations found`.
+
+
+## Importante sobre estatísticas reais
+
+Na primeira versão anterior, quando `DEMO_MODE=true`, o sistema gerava dados fictícios para deixar o layout preenchido.
+Agora o padrão é `DEMO_MODE=false`. Para puxar estatísticas reais, configure no Railway:
+
+```env
+PUBG_API_KEY=sua_chave_oficial
+DEMO_MODE=false
+```
+
+Se você já testou o projeto com dados demo no mesmo banco, pesquise novamente o nick depois de configurar a API. O sistema reaproveita o registro demo do mesmo nick/shard e troca para o `account_id` real, apagando partidas/medalhas/gráficos gerados artificialmente.
+
+Observação: a PUBG API lifetime não fornece estatísticas por arma. Por isso o card de arma principal fica vazio até o processamento de telemetry ser expandido. Melhor ficar vazio do que inventar Beryl/M762/dano falso.

@@ -112,3 +112,7 @@ Caminho do admin:
 4. Implementar ranking clean anti-bot.
 5. Criar painel de times/squads.
 6. Criar sistema de upload/seleção de assets por tipo: weapon, map, badge, hero.
+
+## Railway build note
+
+Este projeto inclui `mise.toml` com `python.github_attestations = false` para evitar falha recente do Railpack/mise ao instalar Python 3.12.4 quando o builder retorna `No GitHub artifact attestations found`.
